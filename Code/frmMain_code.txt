@@ -1,0 +1,104 @@
+Option Explicit
+'==============================================================================
+' frmMain - main menu. Paste into a BLANK UserForm named frmMain.
+' Controls are created at runtime; nothing to draw.
+'
+' Pick a template -> its form frm<TID> opens on top of this form.
+' Close it -> you are back here. "Open Form" reopens the selected template.
+'==============================================================================
+
+Private Const GAP As Single = 6
+Private Const FORM_W As Single = 420
+
+Private WithEvents cboTemplate As MSForms.ComboBox
+Private WithEvents btnOpen As MSForms.CommandButton
+Private WithEvents btnClose As MSForms.CommandButton
+Private lblInfo As MSForms.Label
+Private opening As Boolean
+
+Private Sub UserForm_Initialize()
+    Dim lbl As MSForms.Label, r As ListRow, innerW As Single
+
+    Me.Width = FORM_W
+    Me.Height = 150
+    innerW = Me.InsideWidth
+
+    Set lbl = Me.Controls.Add("Forms.Label.1", "lblTemplate")
+    lbl.Caption = "Template"
+    lbl.Left = GAP * 2: lbl.Top = GAP * 2 + 3: lbl.Width = 55
+
+    Set cboTemplate = Me.Controls.Add("Forms.ComboBox.1", "cboTemplate")
+    With cboTemplate
+        .Left = 70: .Top = GAP * 2: .Height = 18
+        .Width = innerW - 70 - GAP * 2
+        .Style = fmStyleDropDownList
+        .ListRows = 20
+    End With
+
+    Set lblInfo = Me.Controls.Add("Forms.Label.1", "lblInfo")
+    With lblInfo
+        .Left = GAP * 2: .Top = 40: .Width = innerW - GAP * 4: .Height = 30
+        .Caption = "Select a template to open its form."
+        .WordWrap = True
+    End With
+
+    Set btnClose = Me.Controls.Add("Forms.CommandButton.1", "btnClose")
+    With btnClose
+        .Caption = "Close": .Width = 80: .Height = 24
+        .Top = 78: .Left = innerW - GAP * 2 - 80
+        .Cancel = True
+    End With
+
+    Set btnOpen = Me.Controls.Add("Forms.CommandButton.1", "btnCreate")   'named btnCreate = primary style
+    With btnOpen
+        .Caption = "Open Form": .Width = 90: .Height = 24
+        .Top = 78: .Left = btnClose.Left - GAP - 90
+        .Enabled = False
+    End With
+
+    For Each r In ThisWorkbook.Worksheets(SHEET_TEMPLATES).ListObjects(TABLE_TEMPLATES).ListRows
+        If UCase(Trim(CStr(r.Range(1, COL_ACTIVE).Value))) = "Y" Then
+            cboTemplate.AddItem Trim(CStr(r.Range(1, COL_TID).Value)) & " | " & r.Range(1, COL_NAME).Value
+        End If
+    Next r
+
+    ApplyTheme Me, "Main menu"
+End Sub
+
+Private Function CurrentTID() As String
+    If Len(cboTemplate.Text) > 0 Then CurrentTID = Trim(Split(cboTemplate.Text, "|")(0))
+End Function
+
+Private Sub cboTemplate_Change()
+    btnOpen.Enabled = Len(CurrentTID) > 0
+    If Len(CurrentTID) = 0 Then Exit Sub
+    SetThemeSubtitle Me, TemplateTitle(CurrentTID)
+    OpenSelected
+End Sub
+
+Private Sub btnOpen_Click()
+    OpenSelected
+End Sub
+
+Private Sub OpenSelected()
+    Dim f As Object
+    If opening Or Len(CurrentTID) = 0 Then Exit Sub
+    opening = True
+    Set f = LoadTemplateForm(CurrentTID)
+    If Not f Is Nothing Then
+        lblInfo.Caption = "Fill in the form for " & CurrentTID & ". Click 'Open Form' to open it again."
+        If Not f.Visible Then
+            On Error Resume Next                    'positioning is cosmetic
+            f.StartUpPosition = 0
+            f.Left = Me.Left + 30
+            f.Top = Me.Top + 30
+            On Error GoTo 0
+            f.Show                                  'waits here until the template form closes
+        End If
+    End If
+    opening = False
+End Sub
+
+Private Sub btnClose_Click()
+    Unload Me
+End Sub

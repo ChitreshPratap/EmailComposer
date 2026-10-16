@@ -1,0 +1,49 @@
+Option Explicit
+'==============================================================================
+' frmT07 - screen for template T07 "Education & Guardian"
+'
+' Insert a UserForm named frmT07, draw these controls, then paste this code:
+'   txtContributor       TextBox    (label "Contributor Name *")
+'   chkEducation         CheckBox   caption "Education Details"
+'   fraEducation         Frame      caption "Education Details", containing:
+'       txtMarks12th, txtBoard12th, txtPassingYear12th   TextBoxes (+ labels)
+'   cboGuardian          ComboBox   (label "Guardian *")
+'   btnCreate            CommandButton  caption "Create Email"
+'   btnCancel            CommandButton  caption "Cancel"
+'==============================================================================
+
+Private Sub UserForm_Initialize()
+    cboGuardian.List = Array("Self", "Mother", "Father", "Friend")
+    cboGuardian.Style = fmStyleDropDownList
+    ApplyTheme Me, TemplateTitle("T07")             'common header/footer/colours
+    UpdateEducation
+End Sub
+
+'---------------- screen logic ----------------
+Private Sub chkEducation_Click()
+    UpdateEducation
+End Sub
+
+Private Sub UpdateEducation()
+    fraEducation.Visible = chkEducation.Value      'ask for 12th details only when ticked
+End Sub
+
+'---------------- create mail ----------------
+Private Sub btnCreate_Click()
+    Dim m As New clsT07
+
+    m.ContributorName = Trim(txtContributor.Value)
+    m.EducationDetails = chkEducation.Value
+    If m.EducationDetails Then
+        m.Marks12th = Trim(txtMarks12th.Value)
+        m.Board12th = Trim(txtBoard12th.Value)
+        m.PassingYear12th = Trim(txtPassingYear12th.Value)
+    End If
+    m.Guardian = cboGuardian.Text
+
+    If ComposeFromModel(m) Then Unload Me
+End Sub
+
+Private Sub btnCancel_Click()
+    Unload Me
+End Sub

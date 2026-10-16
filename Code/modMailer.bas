@@ -1,15 +1,18 @@
-Attribute VB_Name = "modMailEngine"
+Attribute VB_Name = "modMailer"
 Option Explicit
 '==============================================================================
-' modMailEngine
-' Opens the .oft template, resolves conditional blocks, replaces {{tokens}},
-' fills Subject/To/CC and DISPLAYS the mail (never sends). Logs each compose.
-' Late bound: no reference to Outlook or VBScript needed.
+' modMailer - the ONLY shared mail logic. You normally never edit this module.
+'
+'   ComposeFromModel model   -> validates the model, opens the template's .oft,
+'                               keeps/removes {{#SECTIONS}}, fills {{tokens}},
+'                               fills Subject/To/CC and DISPLAYS the mail.
+'   ShowMainMenu             -> opens frmMain (assign to a sheet button)
+'
+' Each template = frm<TID> (screen) + cls<TID> (model, Implements IMailModel).
 '==============================================================================
 
 Public Const SHEET_TEMPLATES As String = "Templates"
 Public Const TABLE_TEMPLATES As String = "tblTemplates"
-Public Const SHEET_LOG As String = "SendLog"
 
 'tblTemplates column positions
 Public Const COL_TID As Long = 1
@@ -20,60 +23,24 @@ Public Const COL_CC As Long = 5
 Public Const COL_ACTIVE As Long = 6
 
 '------------------------------------------------------------------------------
-' Entry point - assign this macro to a button
+' Entry points
 '------------------------------------------------------------------------------
-Public Sub ShowComposer()
+Public Sub ShowMainMenu()
     Dim f As Object
-    Set f = LoadedForm("frmCompose")
+    Set f = LoadedForm("frmMain")
     If Not f Is Nothing Then
-        If f.Visible Then Exit Sub                  'already on screen
+        If f.Visible Then Exit Sub
     End If
-    frmCompose.Show
+    frmMain.Show
 End Sub
 
-'Open one template directly (e.g. a button per template): ShowTemplate "T05"
-'Uses the designed form frm<TID> if it exists, otherwise the automatic form.
-Public Sub ShowTemplate(ByVal tid As String)
-    Dim f As Object
-    tid = Trim(tid)
-
-    Set f = TryLoadDesignedForm(tid)
-    If Not f Is Nothing Then
-        SafeShow f
-        Exit Sub
-    End If
-
-    'No designed form - use the automatic form with this template preselected
-    Set f = LoadedForm("frmCompose")
-    If Not f Is Nothing Then
-        If f.Visible Then Exit Sub                  'picker already open
-    End If
-    frmCompose.PreselectTemplate tid
-    If LoadedForm("frmCompose") Is Nothing Then Exit Sub    'it handed over and closed itself
-    SafeShow frmCompose
-End Sub
-
-'Shows a form modally only if it is not already on screen (prevents run-time error 400)
-Public Sub SafeShow(ByVal f As Object)
-    If f Is Nothing Then Exit Sub
-    If f.Visible Then Exit Sub
-    f.Show
-End Sub
-
-'Returns the designed form frm<TID> (reusing an already loaded one), or Nothing.
-'If the form EXISTS but fails while opening (error in its UserForm_Initialize),
-'the real error is shown instead of being silently ignored.
-Public Function TryLoadDesignedForm(ByVal tid As String) As Object
-    Dim f As Object, nm As String, exists As Variant, errNo As Long, errMsg As String
+'Loads frm<TID> (not shown). Reports a clear message when it is missing or fails.
+Public Function LoadTemplateForm(ByVal tid As String) As Object
+    Dim f As Object, nm As String, errNo As Long, errMsg As String
     nm = "frm" & Trim(tid)
 
     Set f = LoadedForm(nm)
-    If Not f Is Nothing Then Set TryLoadDesignedForm = f: Exit Function
-
-    exists = DesignedFormExists(nm)                 'True / False / Empty (= cannot tell)
-    If Not IsEmpty(exists) Then
-        If exists = False Then Exit Function        'definitely no designed form
-    End If
+    If Not f Is Nothing Then Set LoadTemplateForm = f: Exit Function
 
     On Error Resume Next
     Set f = VBA.UserForms.Add(nm)
@@ -81,83 +48,53 @@ Public Function TryLoadDesignedForm(ByVal tid As String) As Object
     On Error GoTo 0
 
     If errNo <> 0 Then
-        Set f = Nothing
-        Debug.Print "TryLoadDesignedForm(" & nm & "): " & errNo & " " & errMsg
-        If Not IsEmpty(exists) Then             'form exists -> its Initialize failed
-            MsgBox nm & " exists but could not be opened." & vbCrLf & vbCrLf & _
-                   "Error " & errNo & ": " & errMsg & vbCrLf & vbCrLf & _
-                   "Run TestDesignedForm """ & Trim(tid) & """ to stop on the failing line.", _
-                   vbExclamation, "Email Composer"
-        End If
+        MsgBox "Could not open the form " & nm & "." & vbCrLf & vbCrLf & _
+               "Error " & errNo & ": " & errMsg & vbCrLf & vbCrLf & _
+               "Create a UserForm named " & nm & " for this template.", _
+               vbExclamation, "Email Composer"
+        Exit Function
     End If
-    Set TryLoadDesignedForm = f
+    Set LoadTemplateForm = f
 End Function
-
-'True/False when the VBA project can be inspected, Empty when it cannot
-'(needs "Trust access to the VBA project object model").
-Public Function DesignedFormExists(ByVal nm As String) As Variant
-    Dim comp As Object, comps As Object
-    On Error Resume Next
-    Set comps = ThisWorkbook.VBProject.VBComponents
-    If Err.Number <> 0 Or comps Is Nothing Then Exit Function      'Empty
-    Set comp = comps(nm)
-    DesignedFormExists = Not comp Is Nothing
-    If DesignedFormExists Then DesignedFormExists = (comp.Type = 3)  'vbext_ct_MSForm
-End Function
-
-'Diagnostic: loads frm<TID> WITHOUT error trapping so the debugger stops on the failing line.
-'Set VBA editor > Tools > Options > General > Error Trapping = "Break in Class Module" first.
-Public Sub TestDesignedForm(Optional ByVal tid As String = "")
-    Dim f As Object
-    If Len(tid) = 0 Then tid = Trim(InputBox("Template ID (e.g. T05):", "Test designed form"))
-    If Len(tid) = 0 Then Exit Sub
-    Debug.Print "Exists in project: "; DesignedFormExists("frm" & tid)
-    Set f = VBA.UserForms.Add("frm" & tid)
-    MsgBox "frm" & tid & " loaded without errors.", vbInformation
-    f.Show
-End Sub
-
-'Form already loaded in memory (shown or hidden)?
-Public Function LoadedForm(ByVal nm As String) As Object
-    Dim f As Object
-    For Each f In VBA.UserForms
-        If StrComp(f.Name, nm, vbTextCompare) = 0 Then Set LoadedForm = f: Exit Function
-    Next f
-End Function
-
 
 '------------------------------------------------------------------------------
-' Compose and display the mail
+' Compose and display the mail from a model
 '------------------------------------------------------------------------------
-Public Function ComposeMail(ByVal tid As String, ByVal vals As Object) As Boolean
-    Dim tplRow As Range, olApp As Object, m As Object
-    Dim html As String, subj As String, toAdr As String, ccAdr As String
-    Dim k As Variant, path As String, leftover As String, tok As String
+Public Function ComposeFromModel(ByVal model As IMailModel) As Boolean
+    Dim tid As String, problem As String, tplRow As Range, path As String
+    Dim m As Object, html As String, subj As String, toAdr As String, ccAdr As String
+    Dim tokens As Object, sections As Object, k As Variant, tok As String, leftover As String
+
+    tid = model.TemplateID
+
+    problem = model.Validate()
+    If Len(problem) > 0 Then MsgBox problem, vbExclamation, "Please check": Exit Function
 
     On Error GoTo Fail
-
     Set tplRow = FindTemplateRow(tid)
-    If tplRow Is Nothing Then Err.Raise vbObjectError + 700, , "Template not found in tblTemplates: " & tid
-
+    If tplRow Is Nothing Then Err.Raise vbObjectError + 700, , "Template " & tid & " is not listed in tblTemplates."
     path = ResolvePath(CStr(tplRow.Cells(1, COL_PATH).Value))
     If Len(Dir(path)) = 0 Then Err.Raise vbObjectError + 701, , "Template file not found:" & vbCrLf & path
 
-    Set olApp = GetOutlook()
-    Set m = olApp.CreateItemFromTemplate(path)
+    Set tokens = model.Tokens()
+    Set sections = model.Sections()
+    If tokens Is Nothing Then Set tokens = NewMap()
+    If sections Is Nothing Then Set sections = NewMap()
 
-    'Clean hidden formatting inside placeholders (spell-check marks etc.),
-    'then blocks FIRST (they need to see which tokens are still empty), tokens second
-    html = ProcessBlocks(NormalizeTokens(m.HTMLBody), tid, vals)
+    Set m = GetOutlook().CreateItemFromTemplate(path)
+
+    'Sections FIRST (AUTO sections need to see which tokens are empty), tokens second
+    html = ApplySections(NormalizeTokens(m.HTMLBody), sections, tokens)
     subj = m.Subject
     toAdr = CStr(tplRow.Cells(1, COL_TO).Value)
     ccAdr = CStr(tplRow.Cells(1, COL_CC).Value)
 
-    For Each k In vals.Keys
+    For Each k In tokens.Keys
         tok = "{{" & k & "}}"
-        html = Replace(html, tok, HtmlEncode(CStr(vals(k))), , , vbTextCompare)
-        subj = Replace(subj, tok, CStr(vals(k)), , , vbTextCompare)
-        toAdr = Replace(toAdr, tok, CStr(vals(k)), , , vbTextCompare)
-        ccAdr = Replace(ccAdr, tok, CStr(vals(k)), , , vbTextCompare)
+        html = Replace(html, tok, HtmlEncode(CStr(tokens(k))), , , vbTextCompare)
+        subj = Replace(subj, tok, CStr(tokens(k)), , , vbTextCompare)
+        toAdr = Replace(toAdr, tok, CStr(tokens(k)), , , vbTextCompare)
+        ccAdr = Replace(ccAdr, tok, CStr(tokens(k)), , , vbTextCompare)
     Next k
 
     leftover = FindLeftoverTokens(html & " " & subj & " " & toAdr & " " & ccAdr)
@@ -166,15 +103,14 @@ Public Function ComposeMail(ByVal tid As String, ByVal vals As Object) As Boolea
     m.Subject = subj
     If Len(Trim(toAdr)) > 0 Then m.To = toAdr
     If Len(Trim(ccAdr)) > 0 Then m.CC = ccAdr
-    m.Display                   'review before sending - never .Send
-
-    LogSend tid, vals
+    m.Display                                       'review before sending - never .Send
 
     If Len(leftover) > 0 Then
-        MsgBox "Mail created, but these placeholders were not filled:" & vbCrLf & leftover & vbCrLf & vbCrLf & _
-               "Run ValidateTemplate for " & tid & " to find the cause.", vbExclamation, "Check the mail"
+        MsgBox "Mail created, but these placeholders were not filled:" & leftover & vbCrLf & vbCrLf & _
+               "Add them to Tokens() in cls" & tid & ", or check their spelling in the template.", _
+               vbExclamation, "Check the mail"
     End If
-    ComposeMail = True
+    ComposeFromModel = True
     Exit Function
 
 Fail:
@@ -182,49 +118,75 @@ Fail:
 End Function
 
 '------------------------------------------------------------------------------
-' Conditional blocks:  {{#NAME}} ... {{/NAME}}
+' Sections  {{#NAME}} ... {{/NAME}}
+'   NAME listed in the model's Sections()  -> kept when True, removed when False
+'   NAME not listed (AUTO)                 -> kept only when every {{token}} inside is filled
 '------------------------------------------------------------------------------
-Public Function ProcessBlocks(ByVal html As String, ByVal tid As String, ByVal vals As Object) As String
-    Dim re As Object, mt As Object, ids As Object, k As Variant
+Public Function ApplySections(ByVal html As String, ByVal sections As Object, ByVal tokens As Object) As String
+    Dim re As Object, mt As Object, ids As Object, k As Variant, keep As Boolean
     Set re = CreateObject("VBScript.RegExp")
     re.Global = True: re.IgnoreCase = True
-    Set ids = CreateObject("Scripting.Dictionary")
-    ids.CompareMode = vbTextCompare
+    Set ids = NewMap()
 
     re.Pattern = "\{\{#(\w+)\}\}"
     For Each mt In re.Execute(html)
-        ids(mt.SubMatches(0)) = 1           'document order: outer blocks first
+        ids(mt.SubMatches(0)) = 1                   'document order: outer sections first
     Next mt
 
     For Each k In ids.Keys
-        html = ApplyBlock(html, CStr(k), BlockIsOn(html, CStr(k), tid, vals))
+        If MapHas(sections, CStr(k)) Then
+            keep = CBool(sections(CStr(k)))
+        Else
+            keep = AllTokensFilled(html, CStr(k), tokens)
+        End If
+        html = ApplyBlock(html, CStr(k), keep)
     Next k
-    ProcessBlocks = html
+    ApplySections = html
 End Function
 
-Private Function BlockIsOn(ByVal html As String, ByVal id As String, _
-                           ByVal tid As String, ByVal vals As Object) As Boolean
-    Dim rule As Variant, re As Object, mc As Object, mt As Object
-
-    'Rule defined in modTemplateRules wins
-    rule = BlockRule(tid, id, vals)
-    If Not IsEmpty(rule) Then BlockIsOn = CBool(rule): Exit Function
-
-    'AUTO: keep only if every token inside the block has a value
+Private Function AllTokensFilled(ByVal html As String, ByVal id As String, ByVal tokens As Object) As Boolean
+    Dim re As Object, mc As Object, mt As Object, nm As String
     Set re = CreateObject("VBScript.RegExp")
     re.IgnoreCase = True
     re.Pattern = "\{\{#" & id & "\}\}([\s\S]*?)\{\{/" & id & "\}\}"
     Set mc = re.Execute(html)
     If mc.Count = 0 Then Exit Function
-
     re.Global = True
     re.Pattern = "\{\{(\w+)\}\}"
-    BlockIsOn = True
+    AllTokensFilled = True
     For Each mt In re.Execute(mc(0).SubMatches(0))
-        If Len(GetVal(vals, mt.SubMatches(0))) = 0 Then BlockIsOn = False: Exit Function
+        nm = mt.SubMatches(0)
+        If Not MapHas(tokens, nm) Then AllTokensFilled = False: Exit Function
+        If Len(Trim("" & tokens(nm))) = 0 Then AllTokensFilled = False: Exit Function
     Next mt
 End Function
 
+'------------------------------------------------------------------------------
+' Small helpers for model classes
+'------------------------------------------------------------------------------
+'Case-insensitive Dictionary - use it in Tokens() and Sections()
+Public Function NewMap() As Object
+    Set NewMap = CreateObject("Scripting.Dictionary")
+    NewMap.CompareMode = vbTextCompare
+End Function
+
+Public Function MapHas(ByVal d As Object, ByVal k As String) As Boolean
+    If d Is Nothing Then Exit Function
+    MapHas = d.Exists(k)
+End Function
+
+'True when value equals one of the ;-separated options (case-insensitive)
+Public Function IsOneOf(ByVal value As String, ByVal options As String) As Boolean
+    Dim o As Variant
+    If Len(Trim(value)) = 0 Then Exit Function
+    For Each o In Split(options, ";")
+        If StrComp(Trim(o), Trim(value), vbTextCompare) = 0 Then IsOneOf = True: Exit Function
+    Next o
+End Function
+
+'------------------------------------------------------------------------------
+' Template engine internals
+'------------------------------------------------------------------------------
 Private Function ApplyBlock(ByVal html As String, ByVal id As String, ByVal keep As Boolean) As String
     'PAD = whitespace / &nbsp; / inline tags (span, o:p, b...), never crosses a paragraph boundary
     Const PAD As String = "(?:\s|&nbsp;|<(?!/?p[\s>])[^>]*>)*"
@@ -301,25 +263,6 @@ Public Function NormalizeTokens(ByVal html As String, Optional ByRef repaired As
     NormalizeTokens = out & Mid(html, pos)
 End Function
 
-'------------------------------------------------------------------------------
-' Helpers
-'------------------------------------------------------------------------------
-'Value of any input control as text. CheckBox: ticked = "Yes", not ticked = "".
-Public Function ControlValue(ByVal c As Object) As String
-    If c Is Nothing Then Exit Function
-    Select Case TypeName(c)
-        Case "CheckBox", "OptionButton"
-            If c.Value = True Then ControlValue = "Yes"
-        Case Else
-            ControlValue = Trim("" & c.Value)
-    End Select
-End Function
-
-Public Function GetVal(ByVal vals As Object, ByVal fld As String) As String
-    fld = Trim(fld)
-    If vals.Exists(fld) Then GetVal = Trim("" & vals(fld))
-End Function
-
 Private Function HtmlEncode(ByVal s As String) As String
     s = Replace(s, "&", "&amp;")
     s = Replace(s, "<", "&lt;")
@@ -382,17 +325,10 @@ Public Function ResolvePath(ByVal p As String) As String
     End If
 End Function
 
-Private Sub LogSend(ByVal tid As String, ByVal vals As Object)
-    Dim ws As Worksheet, r As Long, k As Variant, s As String
-    On Error GoTo Done                      'logging must never block the mail
-    Set ws = ThisWorkbook.Worksheets(SHEET_LOG)
-    For Each k In vals.Keys
-        If Len("" & vals(k)) > 0 Then s = s & k & "=" & vals(k) & "; "
-    Next k
-    r = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row + 1
-    ws.Cells(r, 1).Value = Now
-    ws.Cells(r, 2).Value = Environ("USERNAME")
-    ws.Cells(r, 3).Value = tid
-    ws.Cells(r, 4).Value = Left(s, 32000)
-Done:
-End Sub
+'Form already loaded in memory (shown or hidden)?
+Public Function LoadedForm(ByVal nm As String) As Object
+    Dim f As Object
+    For Each f In VBA.UserForms
+        If StrComp(f.Name, nm, vbTextCompare) = 0 Then Set LoadedForm = f: Exit Function
+    Next f
+End Function
