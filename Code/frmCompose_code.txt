@@ -1,0 +1,213 @@
+Option Explicit
+'==============================================================================
+' frmCompose - paste this into a BLANK UserForm named frmCompose.
+' Every control is created at runtime, so you don't draw anything.
+'==============================================================================
+
+Private Const GAP As Single = 6
+Private Const LBL_W As Single = 130
+Private Const FORM_W As Single = 440
+Private Const FRAME_H As Single = 320
+
+Private WithEvents cboTemplate As MSForms.ComboBox
+Private WithEvents btnCreate As MSForms.CommandButton
+Private WithEvents btnCancel As MSForms.CommandButton
+Private fraFields As MSForms.Frame
+
+Private watchers As Collection
+Private currentFields As Collection
+Private building As Boolean
+
+'------------------------------------------------------------------------------
+' Build the fixed part of the form
+'------------------------------------------------------------------------------
+Private Sub UserForm_Initialize()
+    Dim lbl As MSForms.Label, r As ListRow, innerW As Single
+
+    Me.Caption = "Compose Email"
+    Me.Width = FORM_W
+    Me.Height = FRAME_H + 125
+    innerW = Me.InsideWidth
+
+    Set lbl = Me.Controls.Add("Forms.Label.1", "lblTemplate")
+    lbl.Caption = "Template"
+    lbl.Left = GAP * 2: lbl.Top = GAP * 2 + 3: lbl.Width = 55
+
+    Set cboTemplate = Me.Controls.Add("Forms.ComboBox.1", "cboTemplate")
+    With cboTemplate
+        .Left = 70: .Top = GAP * 2: .Height = 18
+        .Width = innerW - 70 - GAP * 2
+        .Style = fmStyleDropDownList
+    End With
+
+    Set fraFields = Me.Controls.Add("Forms.Frame.1", "fraFields")
+    With fraFields
+        .Caption = "Details"
+        .Left = GAP * 2: .Top = 40
+        .Width = innerW - GAP * 4: .Height = FRAME_H
+        .ScrollBars = fmScrollBarsVertical
+    End With
+
+    Set btnCancel = Me.Controls.Add("Forms.CommandButton.1", "btnCancel")
+    With btnCancel
+        .Caption = "Cancel": .Width = 80: .Height = 24
+        .Top = fraFields.Top + FRAME_H + GAP * 2
+        .Left = innerW - GAP * 2 - 80
+        .Cancel = True
+    End With
+
+    Set btnCreate = Me.Controls.Add("Forms.CommandButton.1", "btnCreate")
+    With btnCreate
+        .Caption = "Create Email": .Width = 90: .Height = 24
+        .Top = btnCancel.Top
+        .Left = btnCancel.Left - GAP - 90
+    End With
+
+    For Each r In ThisWorkbook.Worksheets(SHEET_TEMPLATES).ListObjects(TABLE_TEMPLATES).ListRows
+        If UCase(Trim(CStr(r.Range(1, COL_ACTIVE).Value))) = "Y" Then
+            cboTemplate.AddItem Trim(CStr(r.Range(1, COL_TID).Value)) & " | " & r.Range(1, COL_NAME).Value
+        End If
+    Next r
+End Sub
+
+Private Sub UserForm_Terminate()
+    Set watchers = Nothing
+End Sub
+
+Private Function CurrentTID() As String
+    If Len(cboTemplate.Text) > 0 Then CurrentTID = Trim(Split(cboTemplate.Text, "|")(0))
+End Function
+
+'------------------------------------------------------------------------------
+' Build the field controls for the chosen template
+'------------------------------------------------------------------------------
+Private Sub cboTemplate_Change()
+    Dim fd As Variant, key As String, c As Object, w As clsFieldWatch, ctlLeft As Single
+
+    building = True
+    Set watchers = New Collection
+    fraFields.Controls.Clear
+    Set currentFields = Nothing
+    If Len(CurrentTID) = 0 Then building = False: Exit Sub
+
+    On Error GoTo NoFields
+    Set currentFields = GetFields(CurrentTID)
+    On Error GoTo 0
+
+    ctlLeft = LBL_W + GAP * 2
+    For Each fd In currentFields
+        key = fd(0)
+
+        With fraFields.Controls.Add("Forms.Label.1", "lbl_" & key)
+            .Caption = fd(1) & IIf(fd(3), " *", "")
+            .Left = GAP: .Width = LBL_W
+        End With
+
+        Select Case fd(2)
+            Case "List"
+                Set c = fraFields.Controls.Add("Forms.ComboBox.1", "fld_" & key)
+                c.List = Split(fd(4), ";")
+                c.Style = fmStyleDropDownList
+                c.Height = 18
+            Case "MultiLine"
+                Set c = fraFields.Controls.Add("Forms.TextBox.1", "fld_" & key)
+                c.MultiLine = True
+                c.EnterKeyBehavior = True
+                c.WordWrap = True
+                c.ScrollBars = fmScrollBarsVertical
+                c.Height = 48
+            Case Else
+                Set c = fraFields.Controls.Add("Forms.TextBox.1", "fld_" & key)
+                c.Height = 18
+                If fd(2) = "Date" Then c.ControlTipText = "Date, e.g. " & Format(Date, "dd-mmm-yyyy")
+                If fd(2) = "Number" Then c.ControlTipText = "Numbers only"
+        End Select
+        c.Left = ctlLeft
+        c.Width = fraFields.Width - ctlLeft - 24       'room for the scrollbar
+
+        Set w = New clsFieldWatch
+        Set w.Owner = Me
+        If TypeName(c) = "ComboBox" Then Set w.cb = c Else Set w.tb = c
+        watchers.Add w
+    Next fd
+
+    building = False
+    RefreshVisibility
+    Exit Sub
+
+NoFields:
+    building = False
+    MsgBox Err.Description, vbExclamation, "Email Composer"
+End Sub
+
+'------------------------------------------------------------------------------
+' Show/hide fields and re-stack the visible ones (called on every change)
+'------------------------------------------------------------------------------
+Public Sub RefreshVisibility()
+    Dim fd As Variant, key As String, vis As Boolean, topPos As Single, vals As Object
+    If building Or currentFields Is Nothing Then Exit Sub
+
+    Set vals = ReadValues()
+    topPos = GAP
+    For Each fd In currentFields
+        key = fd(0)
+        vis = IsFieldVisible(CurrentTID, key, vals)
+        fraFields.Controls("fld_" & key).Visible = vis
+        fraFields.Controls("lbl_" & key).Visible = vis
+        If vis Then
+            fraFields.Controls("fld_" & key).Top = topPos
+            fraFields.Controls("lbl_" & key).Top = topPos + 3
+            topPos = topPos + fraFields.Controls("fld_" & key).Height + GAP
+        End If
+    Next fd
+    fraFields.ScrollHeight = topPos + GAP
+End Sub
+
+Private Function ReadValues() As Object
+    Dim d As Object, fd As Variant
+    Set d = CreateObject("Scripting.Dictionary")
+    d.CompareMode = vbTextCompare
+    For Each fd In currentFields
+        d(CStr(fd(0))) = Trim("" & fraFields.Controls("fld_" & fd(0)).Value)
+    Next fd
+    Set ReadValues = d
+End Function
+
+'------------------------------------------------------------------------------
+' Validate and compose
+'------------------------------------------------------------------------------
+Private Sub btnCreate_Click()
+    Dim vals As Object, fd As Variant, key As String, v As String, ctl As Object, fmt As String
+
+    If currentFields Is Nothing Then MsgBox "Select a template first.", vbExclamation: Exit Sub
+    Set vals = ReadValues()
+
+    For Each fd In currentFields
+        key = fd(0)
+        Set ctl = fraFields.Controls("fld_" & key)
+        If Not ctl.Visible Then
+            vals(key) = ""                          'hidden field never leaks into the mail
+        Else
+            v = vals(key)
+            If fd(3) And Len(v) = 0 Then
+                MsgBox fd(1) & " is required.", vbExclamation: ctl.SetFocus: Exit Sub
+            End If
+            If Len(v) > 0 Then
+                Select Case fd(2)
+                    Case "Number"
+                        If Not IsNumeric(v) Then MsgBox fd(1) & " must be a number.", vbExclamation: ctl.SetFocus: Exit Sub
+                    Case "Date"
+                        If Not IsDate(v) Then MsgBox fd(1) & " must be a valid date.", vbExclamation: ctl.SetFocus: Exit Sub
+                        fmt = IIf(Len(fd(5)) = 0, "dd-mmm-yyyy", fd(5))
+                        vals(key) = Format(CDate(v), fmt)
+                End Select
+            End If
+        End If
+    Next fd
+
+    If ComposeMail(CurrentTID, vals) Then Unload Me
+End Sub
+
+Private Sub btnCancel_Click()
+    Unload Me
+End Sub
