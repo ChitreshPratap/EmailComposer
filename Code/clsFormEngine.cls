@@ -60,6 +60,11 @@ Public Sub Attach(ByVal f As Object, ByVal templateKey As String)
                     Set w = New clsFieldWatch: Set w.cb = c
                 Case "TextBox"
                     Set w = New clsFieldWatch: Set w.tb = c
+                Case "CheckBox"
+                    Set w = New clsFieldWatch: Set w.chk = c
+                Case "ListBox"
+                    If c.ListCount = 0 And Len(fd(4)) > 0 Then c.List = Split(fd(4), ";")
+                    Set w = New clsFieldWatch: Set w.lb = c
                 Case Else
                     Set w = Nothing
             End Select
@@ -137,7 +142,7 @@ Public Function ReadValues() As Object
     d.CompareMode = vbTextCompare
     For Each fd In flds
         Set c = FindCtl("fld_" & fd(0))
-        If c Is Nothing Then d(CStr(fd(0))) = "" Else d(CStr(fd(0))) = Trim("" & c.Value)
+        d(CStr(fd(0))) = ControlValue(c)          'CheckBox -> "Yes" / "" 
     Next fd
     Set ReadValues = d
 End Function
@@ -146,7 +151,12 @@ End Function
 Public Sub SetValue(ByVal key As String, ByVal v As Variant)
     Dim c As Object
     Set c = FindCtl("fld_" & key)
-    If Not c Is Nothing Then c.Value = v
+    If c Is Nothing Then Exit Sub
+    If TypeName(c) = "CheckBox" Then
+        c.Value = (v = True Or UCase("" & v) = "YES")
+    Else
+        c.Value = v
+    End If
 End Sub
 
 '------------------------------------------------------------------------------
@@ -166,7 +176,8 @@ Public Function Submit() As Boolean
         Else
             v = vals(key)
             If fd(3) And Len(v) = 0 Then
-                MsgBox fd(1) & " is required.", vbExclamation: FocusOn c: Exit Function
+                MsgBox fd(1) & IIf(fd(2) = "Check", " must be ticked.", " is required."), vbExclamation
+                FocusOn c: Exit Function
             End If
             If Len(v) > 0 Then
                 Select Case fd(2)

@@ -89,8 +89,36 @@ Public Sub CreateSampleTemplates()
         P("{{/REMARKS}}") & _
         P("Regards,") & P("Claims Team")
 
+    SaveOft ol, folder & "\T07_EducationGuardian.oft", _
+        "Details for {{ContributorName}}", _
+        P("Dear {{ContributorName}},") & P("&nbsp;") & _
+        P("Thank you for submitting your details.") & P("&nbsp;") & _
+        P("{{#EDUCATION}}") & _
+        P("<b>Education Details</b>") & _
+        P("12th Marks: {{Marks12th}}%") & _
+        P("{{#BOARD}}") & P("Board: {{Board12th}}") & P("{{/BOARD}}") & _
+        P("{{#YEAR}}") & P("Year of Passing: {{PassingYear12th}}") & P("{{/YEAR}}") & _
+        P("&nbsp;") & _
+        P("{{/EDUCATION}}") & _
+        P("{{#GUARDIAN_VALID}}") & P("Your guardian is validated.") & P("&nbsp;") & P("{{/GUARDIAN_VALID}}") & _
+        P("{{#GUARDIAN_INVALID}}") & P("You are not a valid guardian.") & P("&nbsp;") & P("{{/GUARDIAN_INVALID}}") & _
+        P("Regards,") & P("Admissions Team")
+    AddTemplateRow "T07", "Education & Guardian", "Templates\T07_EducationGuardian.oft"
+
     MsgBox "Sample templates created in:" & vbCrLf & folder & vbCrLf & vbCrLf & _
            "Open one in Outlook (File > Open > Outlook Item / double-click) to see the markup.", vbInformation
+End Sub
+
+'------------------------------------------------------------------------------
+Private Sub AddTemplateRow(ByVal tid As String, ByVal nm As String, ByVal path As String)
+    Dim lo As ListObject, r As ListRow
+    Set lo = ThisWorkbook.Worksheets(SHEET_TEMPLATES).ListObjects(TABLE_TEMPLATES)
+    If Not FindTemplateRow(tid) Is Nothing Then Exit Sub
+    Set r = lo.ListRows.Add
+    r.Range(1, COL_TID).Value = tid
+    r.Range(1, COL_NAME).Value = nm
+    r.Range(1, COL_PATH).Value = path
+    r.Range(1, COL_ACTIVE).Value = "Y"
 End Sub
 
 '------------------------------------------------------------------------------

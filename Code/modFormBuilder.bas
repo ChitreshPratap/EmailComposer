@@ -88,6 +88,13 @@ Private Function CreateForm(ByVal tid As String, Optional ByVal quiet As Boolean
                 Set c = des.Controls.Add("Forms.ComboBox.1")
                 c.Style = 2                         'fmStyleDropDownList
                 h = 18
+            Case "Check"
+                Set c = des.Controls.Add("Forms.CheckBox.1")
+                c.Caption = "Yes"
+                h = 18
+            Case "ListBox"
+                Set c = des.Controls.Add("Forms.ListBox.1")
+                h = 15 * (UBound(Split(fd(4), ";")) + 1) + 4
             Case "MultiLine"
                 Set c = des.Controls.Add("Forms.TextBox.1")
                 c.MultiLine = True: c.EnterKeyBehavior = True: c.WordWrap = True

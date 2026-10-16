@@ -304,6 +304,17 @@ End Function
 '------------------------------------------------------------------------------
 ' Helpers
 '------------------------------------------------------------------------------
+'Value of any input control as text. CheckBox: ticked = "Yes", not ticked = "".
+Public Function ControlValue(ByVal c As Object) As String
+    If c Is Nothing Then Exit Function
+    Select Case TypeName(c)
+        Case "CheckBox", "OptionButton"
+            If c.Value = True Then ControlValue = "Yes"
+        Case Else
+            ControlValue = Trim("" & c.Value)
+    End Select
+End Function
+
 Public Function GetVal(ByVal vals As Object, ByVal fld As String) As String
     fld = Trim(fld)
     If vals.Exists(fld) Then GetVal = Trim("" & vals(fld))

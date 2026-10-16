@@ -9,7 +9,7 @@ Option Explicit
 ' 4. Shared rules    : one function used by BOTH 2 and 3, so form and mail agree
 '
 ' Field array layout: 0 Key | 1 Label | 2 Type | 3 Required | 4 ListValues | 5 Format
-' Types: Text, Number, Date, List, MultiLine
+' Types: Text, Number, Date, List (dropdown), ListBox, MultiLine, Check (CheckBox: ticked = "Yes")
 ' Field Key must match the {{Key}} token in the .oft exactly (case-insensitive).
 '==============================================================================
 
@@ -35,7 +35,15 @@ Public Function GetFields(ByVal tid As String) As Collection
             AddF f, "Status", "Status", "List", True, "Open;Pending;Closed"
             AddF f, "Remarks", "Remarks", "MultiLine", False
 
-        'Case "T07"    'copy a block above and adjust
+        Case "T07"      'Education & guardian
+            AddF f, "ContributorName", "Contributor Name", "Text", True
+            AddF f, "EducationDetails", "Education Details", "Check", False
+            AddF f, "Marks12th", "12th Marks (%)", "Number", True               'only when ticked
+            AddF f, "Board12th", "12th Board", "Text", False                     'only when ticked
+            AddF f, "PassingYear12th", "12th Passing Year", "Number", False      'only when ticked
+            AddF f, "Guardian", "Guardian", "List", True, "Self;Mother;Father;Friend"
+
+        'Case "T08"    'copy a block above and adjust
 
         Case Else
             Err.Raise vbObjectError + 600, , "No field definition in modTemplateRules.GetFields for template " & tid
@@ -53,6 +61,10 @@ Public Function IsFieldVisible(ByVal tid As String, ByVal key As String, ByVal v
                 Case "APPROVALREF", "APPROVERNAME": IsFieldVisible = IsLongCatchUp(v)
                 Case "TARGETDATE":                  IsFieldVisible = IsShortCatchUp(v)
             End Select
+        Case "T07"
+            Select Case UCase(key)
+                Case "MARKS12TH", "BOARD12TH", "PASSINGYEAR12TH": IsFieldVisible = IsChecked(v, "EducationDetails")
+            End Select
     End Select
 End Function
 
@@ -63,8 +75,11 @@ Public Function BlockRule(ByVal tid As String, ByVal id As String, ByVal v As Ob
     Select Case UCase(Trim(tid)) & "|" & UCase(Trim(id))
         Case "T05|LONG_CATCHUP":  BlockRule = IsLongCatchUp(v)
         Case "T05|SHORT_CATCHUP": BlockRule = IsShortCatchUp(v)
+        Case "T07|EDUCATION":         BlockRule = IsChecked(v, "EducationDetails")
+        Case "T07|GUARDIAN_VALID":    BlockRule = InList(v, "Guardian", "Mother;Father;Friend")
+        Case "T07|GUARDIAN_INVALID":  BlockRule = InList(v, "Guardian", "Self")
         'Example of a richer rule:
-        'Case "T07|OVERDUE_NOTE": BlockRule = (Txt(v, "Status") = "Open" And DaysSince(v, "ClaimDate") > 60)
+        'Case "T08|OVERDUE_NOTE": BlockRule = (Txt(v, "Status") = "Open" And DaysSince(v, "ClaimDate") > 60)
         Case Else:                BlockRule = Empty
     End Select
 End Function
@@ -80,6 +95,21 @@ Private Function IsShortCatchUp(ByVal v As Object) As Boolean
 End Function
 
 '================= HELPERS =================
+'Check field ticked?
+Public Function IsChecked(ByVal v As Object, ByVal k As String) As Boolean
+    IsChecked = (UCase(Txt(v, k)) = "YES")
+End Function
+
+'Field value is one of the ;-separated options (case-insensitive)? Blank = False.
+Public Function InList(ByVal v As Object, ByVal k As String, ByVal options As String) As Boolean
+    Dim o As Variant, cur As String
+    cur = Txt(v, k)
+    If Len(cur) = 0 Then Exit Function
+    For Each o In Split(options, ";")
+        If StrComp(Trim(o), cur, vbTextCompare) = 0 Then InList = True: Exit Function
+    Next o
+End Function
+
 Private Sub AddF(f As Collection, ByVal key As String, ByVal lbl As String, ByVal typ As String, _
                  ByVal req As Boolean, Optional ByVal listVals As String = "", Optional ByVal fmt As String = "")
     f.Add Array(key, lbl, typ, req, listVals, fmt), key
