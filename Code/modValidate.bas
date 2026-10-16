@@ -65,7 +65,12 @@ Private Sub CheckTemplate(ByVal tid As String, rep As Collection)
 
     'Open template
     Set m = GetOutlook().CreateItemFromTemplate(path)
-    html = m.HTMLBody
+    Dim nFixed As Long
+    html = NormalizeTokens(m.HTMLBody, nFixed)      'same cleaning as when composing
+    If nFixed > 0 Then
+        AddIssue rep, tid, "INFO", nFixed & " placeholder(s) contained hidden formatting (e.g. spell-check marks). " & _
+                 "They are repaired automatically when composing. Run RepairTemplate to clean the file itself."
+    End If
     subj = m.Subject
     m.Close 1                               'olDiscard
     Set m = Nothing
@@ -82,7 +87,7 @@ Private Sub CheckTemplate(ByVal tid As String, rep As Collection)
 
     For Each k In txtTok.Keys
         If Not rawTok.Exists(k) Then
-            AddIssue rep, tid, "ERROR", k & " is split by formatting in the .oft - delete it and retype it in one go"
+            AddIssue rep, tid, "ERROR", k & " is broken by text or punctuation between its braces - retype it as {{Key}}"
             nErr = nErr + 1
         End If
     Next k

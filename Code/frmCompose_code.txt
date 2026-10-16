@@ -68,6 +68,8 @@ Private Sub UserForm_Initialize()
             cboTemplate.AddItem Trim(CStr(r.Range(1, COL_TID).Value)) & " | " & r.Range(1, COL_NAME).Value
         End If
     Next r
+
+    ApplyTheme Me, "Select a template"              'header, footer, colours (modTheme)
 End Sub
 
 Private Sub UserForm_Terminate()
@@ -81,8 +83,31 @@ End Function
 '------------------------------------------------------------------------------
 ' Build the field controls for the chosen template
 '------------------------------------------------------------------------------
+'Select a template before showing (used by ShowTemplate)
+Public Sub PreselectTemplate(ByVal tid As String)
+    Dim i As Long
+    For i = 0 To cboTemplate.ListCount - 1
+        If StrComp(Trim(Split(cboTemplate.List(i), "|")(0)), Trim(tid), vbTextCompare) = 0 Then
+            cboTemplate.ListIndex = i
+            Exit Sub
+        End If
+    Next i
+End Sub
+
 Private Sub cboTemplate_Change()
     Dim fd As Variant, key As String, c As Object, w As clsFieldWatch, ctlLeft As Single
+    Dim designed As Object
+
+    'A designed form frm<TID> exists? Hand over to it.
+    If Len(CurrentTID) > 0 Then
+        Set designed = TryLoadDesignedForm(CurrentTID)
+        If Not designed Is Nothing Then
+            Me.Hide
+            designed.Show
+            Unload Me
+            Exit Sub
+        End If
+    End If
 
     building = True
     Set watchers = New Collection
@@ -101,6 +126,7 @@ Private Sub cboTemplate_Change()
         With fraFields.Controls.Add("Forms.Label.1", "lbl_" & key)
             .Caption = fd(1) & IIf(fd(3), " *", "")
             .Left = GAP: .Width = LBL_W
+            StyleControl fraFields.Controls("lbl_" & key)
         End With
 
         Select Case fd(2)
@@ -124,6 +150,7 @@ Private Sub cboTemplate_Change()
         End Select
         c.Left = ctlLeft
         c.Width = fraFields.Width - ctlLeft - 24       'room for the scrollbar
+        StyleControl c
 
         Set w = New clsFieldWatch
         Set w.Owner = Me
@@ -132,6 +159,7 @@ Private Sub cboTemplate_Change()
     Next fd
 
     building = False
+    SetThemeSubtitle Me, TemplateTitle(CurrentTID)
     RefreshVisibility
     Exit Sub
 

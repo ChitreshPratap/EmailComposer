@@ -35,6 +35,8 @@ Public Sub SetupWorkbook()
     AddButton ws, "btnCompose", "Compose Email", "ShowComposer", 1
     AddButton ws, "btnValidate", "Validate All Templates", "ValidateAllTemplates", 2
     AddButton ws, "btnSamples", "Create Sample Templates", "CreateSampleTemplates", 3
+    AddButton ws, "btnEditTpl", "Edit Template", "EditTemplate", 4
+    AddButton ws, "btnSaveTpl", "Save Template", "SaveTemplate", 5
 
     '--- SendLog sheet
     Set ws = EnsureSheet(SHEET_LOG)
